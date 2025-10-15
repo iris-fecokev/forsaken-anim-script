@@ -1,644 +1,684 @@
--- Foremen Animations Universal Loader
--- GitHub: https://raw.githubusercontent.com/yourusername/yourrepo/main/foremen_animations.lua
+-- Forexiken Killers/Survivors Animations Script (Full Version)
+local DebugMode = true
 
-local success, error = pcall(function()
-    -- Проверка на наличие необходимых сервисов
-    if not game:IsLoaded() then
-        game.Loaded:Wait()
-    end
+local function debugPrint(message)
+	if DebugMode then
+		print("[Forexiken Debug]: " .. message)
+	end
+end
 
-    local Players = game:GetService("Players")
-    local UserInputService = game:GetService("UserInputService")
-    local RunService = game:GetService("RunService")
-    local TweenService = game:GetService("TweenService")
-    
-    local player = Players.LocalPlayer
-    while not player do
-        wait(1)
-        player = Players.LocalPlayer
-    end
-    
-    local playerGui = player:WaitForChild("PlayerGui")
+local function errorHandler(errorCode, errorMessage)
+	warn("[Forexiken Error " .. errorCode .. "]: " .. errorMessage)
+	game.StarterGui:SetCore("SendNotification", {
+		Title = "Forexiken Error " .. errorCode,
+		Text = errorMessage,
+		Duration = 10
+	})
+end
 
-    -- Конфигурация анимаций
-    local Config = {
-        Killers = {
-            Zero = {
-                Name = "Zero",
-                Animations = {
-                    Idle = "616158929",
-                    Walk = "72602868477947",
-                    Run = "126369311177328",
-                    Attack = "616161997",
-                    Jump = "616156119",
-                    Fall = "616157476",
-                    Land = "616158929"
-                }
-            },
-            Ghost = {
-                Name = "Ghost",
-                Animations = {
-                    Idle = "616158929",
-                    Walk = "72602868477947",
-                    Run = "126369311177328",
-                    Attack = "6323269776", -- Анимация удара
-                    Jump = "616156119",
-                    Fall = "616157476",
-                    Land = "616158929"
-                }
-            },
-        },
-        
-        Survivors = {
-            Default = {
-                Name = "Default Survivor",
-                Animations = {
-                    Idle = "616158929",
-                    Walk = "72602868477947",
-                    Run = "126369311177328",
-                    Attack = "6323269776", -- Анимация удара
-                    Jump = "616156119",
-                    Fall = "616157476",
-                    Land = "616158929"
-                }
-            },
-            Runner = {
-                Name = "Runner",
-                Animations = {
-                    Idle = "616158929",
-                    Walk = "72602868477947",
-                    Run = "126369311177328",
-                    Attack = "6323269776", -- Анимация удара
-                    Jump = "616156119",
-                    Fall = "616157476",
-                    Land = "616158929"
-                }
-            }
-        }
-    }
+-- Config section
+local Config = {
+	CloseButtonTexture = "118955245038416",
+	MinimizeButtonTexture = "74729089697042",
+	NoliPreview = "124491999410747",
+	HealthThreshold = 50, -- Health limit for injured animations
 
-    -- Система анимаций
-    local currentAnimSet = Config.Survivors.Default.Animations
-    local ANIM_TRACKS = {}
-    local currentTrack = nil
-    local isRunning = false
-    local jumpLock = false
-    local attackCooldown = false
+	-- Speed and Stamina settings
+	SpeedSettings = {
+		NormalSpeed = 16, -- Normal walking speed
+		RunSpeed = 36, -- Running speed
+		StaminaMax = 100, -- Maximum stamina
+		StaminaDrainPerSecond = 15, -- Stamina drain rate when running
+		StaminaRegenPerSecond = 10, -- Stamina regeneration rate
+		ExhaustedSpeed = 12 -- Speed when exhausted (no stamina)
+	},
 
-    -- Переменные персонажа
-    local CHARACTER, HUMANOID, ROOT_PART, ANIMATOR
+	-- Survivor animations (default Roblox animations)
+	SurvivorAnimations = {
+		Normal = {
+			Idle = "84748048281351", -- Default Roblox idle
+			Walk = "92680738846996", -- Default Roblox walk  
+			Run = "115976215666989" -- Default Roblox run
+		},
+		Injured = {
+			Idle = "111614549220138", -- Using Noli idle as example
+			Walk = "127958253884259", -- Using Noli walk as example
+			Run = "134180042540255" -- Using Noli run as example
+		}
+	},
 
-    -- Инициализация персонажа
-    local function initializeCharacter()
-        CHARACTER = player.Character
-        if not CHARACTER then
-            player.CharacterAdded:Wait()
-            CHARACTER = player.Character
-        end
-        
-        HUMANOID = CHARACTER:WaitForChild("Humanoid")
-        ROOT_PART = CHARACTER:WaitForChild("HumanoidRootPart")
-        ANIMATOR = HUMANOID:FindFirstChild("Animator") or Instance.new("Animator")
-        ANIMATOR.Parent = HUMANOID
-        
-        -- Установка начальной скорости
-        HUMANOID.WalkSpeed = 16
-    end
+	-- Noli animations
+	NoliAnimations = {
+		Normal = {
+			Idle = "106918107833755",
+			Walk = "72602868477947", 
+			Run = "126369311177328",
+			Attack = "82796650227086"
+		},
+		Injured = {
+			Idle = "106918107833755", -- Add injured animations here
+			Walk = "72602868477947", 
+			Run = "126369311177328",
+			Attack = "82796650227086"
+		}
+	},
 
-    -- Функция загрузки анимаций
-    local function loadAnimations(animSet)
-        if not ANIMATOR then return end
-        
-        -- Останавливаем все текущие анимации
-        for name, track in pairs(ANIM_TRACKS) do
-            if track and track.IsPlaying then
-                track:Stop(0.1)
-            end
-        end
-        
-        ANIM_TRACKS = {}
-        currentAnimSet = animSet
-        
-        -- Загружаем новые анимации
-        for name, id in pairs(animSet) do
-            if id and id ~= "0" then
-                local success, result = pcall(function()
-                    local animation = Instance.new("Animation")
-                    animation.AnimationId = "rbxassetid://" .. id
-                    local track = ANIMATOR:LoadAnimation(animation)
-                    
-                    -- Установка приоритетов
-                    if name == "Jump" then
-                        track.Priority = Enum.AnimationPriority.Action4
-                    elseif name == "Fall" then
-                        track.Priority = Enum.AnimationPriority.Action3
-                    elseif name == "Attack" then
-                        track.Priority = Enum.AnimationPriority.Action2
-                    elseif name == "Land" then
-                        track.Priority = Enum.AnimationPriority.Action1
-                    elseif name == "Run" or name == "Walk" then
-                        track.Priority = Enum.AnimationPriority.Movement
-                    else
-                        track.Priority = Enum.AnimationPriority.Idle
-                    end
-                    
-                    return track
-                end)
-                
-                if success then
-                    ANIM_TRACKS[name] = result
-                else
-                    warn("[ForemenAnim] Failed to load animation: " .. name .. " - " .. tostring(result))
-                end
-            end
-        end
-        
-        print("[ForemenAnim] Animations loaded successfully!")
-    end
+	Killers = {
+		Noli = {
+			Name = "Noli",
+			Preview = "124491999410747",
+			Animations = {
+				Normal = {
+					Idle = "106918107833755",
+					Walk = "72602868477947", 
+					Run = "126369311177328",
+					Attack = "82796650227086"
+				},
+				Injured = {
+					Idle = "106918107833755",
+					Walk = "72602868477947", 
+					Run = "126369311177328",
+					Attack = "82796650227086"
+				}
+			}
+		}
+	}
+}
 
-    -- Функция проигрывания анимации
-    local function playAnimation(name, fadeTime)
-        if not ANIM_TRACKS[name] then return end
-        if not HUMANOID or HUMANOID.Health <= 0 then return end
+-- Main script execution with error handling
+local success, errorMessage = pcall(function()
+	debugPrint("Script initialization started")
 
-        -- Защита от повторного запуска прыжка
-        if name == "Jump" and jumpLock then
-            return
-        end
+	local player = game.Players.LocalPlayer
+	if not player then
+		error("GUI_LOAD_FAILED", "Player not found")
+		return
+	end
 
-        -- Не перезапускать ту же анимацию
-        if currentTrack == ANIM_TRACKS[name] and currentTrack.IsPlaying then
-            return
-        end
+	-- Wait for character
+	local character = player.Character or player.CharacterAdded:Wait()
+	if not character then
+		error("CHARACTER_NOT_FOUND", "Character not found")
+		return
+	end
 
-        -- Остановка текущей анимации
-        if currentTrack and currentTrack.IsPlaying then
-            currentTrack:Stop(fadeTime or 0.1)
-        end
+	local humanoid = character:WaitForChild("Humanoid")
+	if not humanoid then
+		error("HUMANOID_NOT_FOUND", "Humanoid not found")
+		return
+	end
 
-        -- Запуск новой анимации
-        local success, err = pcall(function()
-            ANIM_TRACKS[name]:Play(fadeTime or 0.15)
-        end)
-        
-        if success then
-            currentTrack = ANIM_TRACKS[name]
-        else
-            warn("[ForemenAnim] Failed to play animation: " .. name .. " - " .. err)
-        end
+	if humanoid.RigType ~= Enum.HumanoidRigType.R6 then
+		error("RIG_TYPE_ERROR", "This script works only for R6 characters!")
+		return
+	end
 
-        -- Блокировка прыжка
-        if name == "Jump" then
-            jumpLock = true
-            delay(0.5, function() jumpLock = false end)
-        end
-        
-        -- Блокировка атаки
-        if name == "Attack" then
-            attackCooldown = true
-            delay(0.6, function() attackCooldown = false end)
-        end
-    end
+	debugPrint("Character validation passed")
 
-    -- Проверка нахождения на земле
-    local function isGrounded()
-        if not HUMANOID or not ROOT_PART then return false end
-        return HUMANOID.FloorMaterial ~= Enum.Material.Air
-    end
+	-- Create GUI
+	local ScreenGui = Instance.new("ScreenGui")
+	ScreenGui.Name = "ForexikenAnimations"
+	ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-    -- Инициализация системы анимаций
-    local function initAnimationSystem()
-        local runSpeed = 40
-        local walkSpeed = 16
-        
-        -- Обработка ввода для бега (ЛЕВЫЙ CTRL)
-        local runConnection
-        runConnection = UserInputService.InputBegan:Connect(function(input, processed)
-            if processed then return end
-            if input.KeyCode == Enum.KeyCode.LeftControl then
-                isRunning = true
-                if HUMANOID then
-                    HUMANOID.WalkSpeed = runSpeed
-                end
-            end
-        end)
+	-- Check if GUI already exists
+	if player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild("ForexikenAnimations") then
+		player.PlayerGui.ForexikenAnimations:Destroy()
+		debugPrint("Existing GUI found and destroyed")
+	end
 
-        local runEndConnection
-        runEndConnection = UserInputService.InputEnded:Connect(function(input, processed)
-            if processed then return end
-            if input.KeyCode == Enum.KeyCode.LeftControl then
-                isRunning = false
-                if HUMANOID then
-                    HUMANOID.WalkSpeed = walkSpeed
-                end
-            end
-        end)
-        
-        -- Обработка атаки (ЛКМ)
-        local attackConnection
-        attackConnection = UserInputService.InputBegan:Connect(function(input, processed)
-            if processed then return end
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                if not attackCooldown and ANIM_TRACKS.Attack and HUMANOID and HUMANOID.Health > 0 then
-                    playAnimation("Attack", 0.1)
-                end
-            end
-        end)
+	ScreenGui.Parent = player:WaitForChild("PlayerGui")
+	debugPrint("ScreenGui created")
 
-        -- Основной обработчик состояний
-        local heartbeatConnection
-        heartbeatConnection = RunService.Heartbeat:Connect(function()
-            if not CHARACTER or not HUMANOID or not ROOT_PART or HUMANOID.Health <= 0 then return end
-            
-            local vel = ROOT_PART.Velocity
-            local grounded = isGrounded()
-            local moving = HUMANOID.MoveDirection.Magnitude > 0.1
-            
-            -- Если атака активна, не меняем другие анимации
-            if ANIM_TRACKS.Attack and ANIM_TRACKS.Attack.IsPlaying then
-                return
-            end
+	-- Main window
+	local okno = Instance.new("Frame")
+	okno.Name = "okno"
+	okno.Size = UDim2.new(0, 400, 0, 300)
+	okno.Position = UDim2.new(0.5, -200, 0.5, -150)
+	okno.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+	okno.BorderSizePixel = 0
+	okno.Active = true
+	okno.Draggable = true
+	okno.Parent = ScreenGui
 
-            -- Воздушные состояния
-            if not grounded then
-                if vel.Y > 5 then
-                    playAnimation("Jump", 0.1)
-                elseif vel.Y < -5 then
-                    playAnimation("Fall", 0.1)
-                end
-            else
-                if moving then
-                    if isRunning and ANIM_TRACKS.Run then
-                        playAnimation("Run", 0.1)
-                    elseif ANIM_TRACKS.Walk then
-                        playAnimation("Walk", 0.1)
-                    end
-                elseif ANIM_TRACKS.Idle then
-                    playAnimation("Idle", 0.2)
-                end
-            end
-        end)
+	local UICorner = Instance.new("UICorner")
+	UICorner.CornerRadius = UDim.new(0, 8)
+	UICorner.Parent = okno
 
-        -- Обработчик прыжка
-        local jumpConnection
-        jumpConnection = HUMANOID.Jumping:Connect(function()
-            if ANIM_TRACKS.Jump then
-                playAnimation("Jump")
-            end
-        end)
+	local UIStroke = Instance.new("UIStroke")
+	UIStroke.Color = Color3.fromRGB(80, 80, 80)
+	UIStroke.Thickness = 2
+	UIStroke.Parent = okno
 
-        -- Обработчик приземления
-        local stateConnection
-        stateConnection = HUMANOID.StateChanged:Connect(function(_, newState)
-            if newState == Enum.HumanoidStateType.Landed then
-                if ANIM_TRACKS.Land then
-                    playAnimation("Land", 0.05)
-                end
-            end
-        end)
+	-- Title
+	local title = Instance.new("TextLabel")
+	title.Name = "title"
+	title.Size = UDim2.new(1, 0, 0, 30)
+	title.Position = UDim2.new(0, 0, 0, 0)
+	title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+	title.BorderSizePixel = 0
+	title.Text = "Forexiken Killers/Survivors Animations"
+	title.TextColor3 = Color3.fromRGB(255, 255, 255)
+	title.TextSize = 14
+	title.Font = Enum.Font.Gotham
+	title.Parent = okno
 
-        -- Обработка смерти персонажа
-        local diedConnection
-        diedConnection = HUMANOID.Died:Connect(function()
-            if currentTrack then
-                currentTrack:Stop()
-            end
-        end)
+	local titleCorner = Instance.new("UICorner")
+	titleCorner.CornerRadius = UDim.new(0, 8)
+	titleCorner.Parent = title
 
-        -- Обработка смены персонажа
-        local characterConnection
-        characterConnection = player.CharacterAdded:Connect(function(character)
-            -- Отключаем старые соединения
-            if runConnection then runConnection:Disconnect() end
-            if runEndConnection then runEndConnection:Disconnect() end
-            if attackConnection then attackConnection:Disconnect() end
-            if heartbeatConnection then heartbeatConnection:Disconnect() end
-            if jumpConnection then jumpConnection:Disconnect() end
-            if stateConnection then stateConnection:Disconnect() end
-            if diedConnection then diedConnection:Disconnect() end
-            
-            wait(1) -- Ждем полной загрузки персонажа
-            
-            initializeCharacter()
-            loadAnimations(currentAnimSet)
-            initAnimationSystem() -- Перезапускаем систему для нового персонажа
-        end)
-    end
+	-- Close button
+	local closeBtn = Instance.new("ImageButton")
+	closeBtn.Name = "closeBtn"
+	closeBtn.Size = UDim2.new(0, 20, 0, 20)
+	closeBtn.Position = UDim2.new(1, -25, 0, 5)
+	closeBtn.BackgroundTransparency = 1
+	closeBtn.Image = "rbxassetid://" .. Config.CloseButtonTexture
+	closeBtn.Parent = title
 
-    -- Создание GUI
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "ForemenAnimations"
-    screenGui.Parent = playerGui
+	closeBtn.MouseButton1Click:Connect(function()
+		debugPrint("Close button clicked")
+		ScreenGui:Destroy()
+	end)
 
-    -- Главное окно
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 400, 0, 350)
-    mainFrame.Position = UDim2.new(0.5, -200, 0.5, -175)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    mainFrame.Active = true
-    mainFrame.Draggable = true
-    mainFrame.Parent = screenGui
+	-- Minimize button
+	local minimizeBtn = Instance.new("ImageButton")
+	minimizeBtn.Name = "minimizeBtn"
+	minimizeBtn.Size = UDim2.new(0, 20, 0, 20)
+	minimizeBtn.Position = UDim2.new(1, -50, 0, 5)
+	minimizeBtn.BackgroundTransparency = 1
+	minimizeBtn.Image = "rbxassetid://" .. Config.MinimizeButtonTexture
+	minimizeBtn.Parent = title
 
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = mainFrame
+	minimizeBtn.MouseButton1Click:Connect(function()
+		debugPrint("Minimize button clicked")
+		okno.Visible = false
+		showWindowBtn.Visible = true
+	end)
 
-    local stroke = Instance.new("UIStroke")
-    stroke.Thickness = 2
-    stroke.Color = Color3.fromRGB(100, 100, 100)
-    stroke.Parent = mainFrame
+	-- Content frame
+	local sodershanie = Instance.new("Frame")
+	sodershanie.Name = "sodershanie"
+	sodershanie.Size = UDim2.new(1, -20, 1, -50)
+	sodershanie.Position = UDim2.new(0, 10, 0, 40)
+	sodershanie.BackgroundTransparency = 1
+	sodershanie.Parent = okno
 
-    -- Заголовок
-    local title = Instance.new("TextLabel")
-    title.Name = "Title"
-    title.Size = UDim2.new(1, 0, 0, 35)
-    title.Position = UDim2.new(0, 0, 0, 0)
-    title.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    title.Text = "FOREMEN ANIMATIONS"
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 14
-    title.Parent = mainFrame
+	-- Killers Select frame
+	local KillersSelect = Instance.new("Frame")
+	KillersSelect.Name = "KillersSelect"
+	KillersSelect.Size = UDim2.new(1, 0, 0, 200)
+	KillersSelect.Position = UDim2.new(0, 0, 0, 0)
+	KillersSelect.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+	KillersSelect.BorderSizePixel = 0
+	KillersSelect.Parent = sodershanie
 
-    local titleCorner = Instance.new("UICorner")
-    titleCorner.CornerRadius = UDim.new(0, 8)
-    titleCorner.Parent = title
+	local KillersCorner = Instance.new("UICorner")
+	KillersCorner.CornerRadius = UDim.new(0, 6)
+	KillersCorner.Parent = KillersSelect
 
-    -- Кнопки управления окном
-    local closeButton = Instance.new("ImageButton")
-    closeButton.Name = "CloseButton"
-    closeButton.Size = UDim2.new(0, 25, 0, 25)
-    closeButton.Position = UDim2.new(1, -30, 0, 5)
-    closeButton.Image = "http://www.roblox.com/asset/?id=118955245038416"
-    closeButton.BackgroundTransparency = 1
-    closeButton.Parent = mainFrame
+	local KillersStroke = Instance.new("UIStroke")
+	KillersStroke.Color = Color3.fromRGB(70, 70, 70)
+	KillersStroke.Thickness = 1
+	KillersStroke.Parent = KillersSelect
 
-    local minimizeButton = Instance.new("ImageButton")
-    minimizeButton.Name = "MinimizeButton"
-    minimizeButton.Size = UDim2.new(0, 25, 0, 25)
-    minimizeButton.Position = UDim2.new(1, -60, 0, 5)
-    minimizeButton.Image = "http://www.roblox.com/asset/?id=74729089697042"
-    minimizeButton.BackgroundTransparency = 1
-    minimizeButton.Parent = mainFrame
+	-- Noli preview
+	local NoliPreview = Instance.new("ImageLabel")
+	NoliPreview.Name = "Noli"
+	NoliPreview.Size = UDim2.new(0, 100, 0, 100)
+	NoliPreview.Position = UDim2.new(0, 20, 0, 20)
+	NoliPreview.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+	NoliPreview.BorderSizePixel = 0
+	NoliPreview.Image = "rbxassetid://" .. Config.NoliPreview
+	NoliPreview.Parent = KillersSelect
 
-    -- Область выбора
-    local selectionFrame = Instance.new("Frame")
-    selectionFrame.Name = "SelectionFrame"
-    selectionFrame.Size = UDim2.new(0.9, 0, 0.8, 0)
-    selectionFrame.Position = UDim2.new(0.05, 0, 0.15, 0)
-    selectionFrame.BackgroundTransparency = 1
-    selectionFrame.Parent = mainFrame
+	local NoliCorner = Instance.new("UICorner")
+	NoliCorner.CornerRadius = UDim.new(0, 6)
+	NoliCorner.Parent = NoliPreview
 
-    -- Кнопка убийц
-    local killerButton = Instance.new("TextButton")
-    killerButton.Name = "KillerButton"
-    killerButton.Size = UDim2.new(1, 0, 0, 40)
-    killerButton.Position = UDim2.new(0, 0, 0, 0)
-    killerButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    killerButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    killerButton.Text = "KILLER ANIMATIONS"
-    killerButton.Font = Enum.Font.GothamBold
-    killerButton.TextSize = 12
-    killerButton.Parent = selectionFrame
+	local NoliStroke = Instance.new("UIStroke")
+	NoliStroke.Color = Color3.fromRGB(80, 80, 80)
+	NoliStroke.Thickness = 1
+	NoliStroke.Parent = NoliPreview
 
-    -- Кнопка выживших
-    local survivorButton = Instance.new("TextButton")
-    survivorButton.Name = "SurvivorButton"
-    survivorButton.Size = UDim2.new(1, 0, 0, 40)
-    survivorButton.Position = UDim2.new(0, 0, 0, 50)
-    survivorButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    survivorButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    survivorButton.Text = "SURVIVOR ANIMATIONS"
-    survivorButton.Font = Enum.Font.GothamBold
-    survivorButton.TextSize = 12
-    survivorButton.Parent = selectionFrame
+	-- Noli name
+	local NoliName = Instance.new("TextLabel")
+	NoliName.Name = "TextLabel"
+	NoliName.Size = UDim2.new(0, 100, 0, 20)
+	NoliName.Position = UDim2.new(0, 20, 0, 130)
+	NoliName.BackgroundTransparency = 1
+	NoliName.Text = "Noli"
+	NoliName.TextColor3 = Color3.fromRGB(255, 255, 255)
+	NoliName.TextSize = 14
+	NoliName.Font = Enum.Font.Gotham
+	NoliName.Parent = KillersSelect
 
-    -- Фрейм выбора убийцы
-    local killerSelectFrame = Instance.new("Frame")
-    killerSelectFrame.Name = "KillerSelectFrame"
-    killerSelectFrame.Size = UDim2.new(1, 0, 0, 200)
-    killerSelectFrame.Position = UDim2.new(0, 0, 0, 110)
-    killerSelectFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-    killerSelectFrame.Visible = false
-    killerSelectFrame.Parent = selectionFrame
+	-- Buttons frame
+	local buttonsFrame = Instance.new("Frame")
+	buttonsFrame.Name = "buttonsFrame"
+	buttonsFrame.Size = UDim2.new(0, 150, 0, 120)
+	buttonsFrame.Position = UDim2.new(0, 140, 0, 20)
+	buttonsFrame.BackgroundTransparency = 1
+	buttonsFrame.Parent = KillersSelect
 
-    local killerScroll = Instance.new("ScrollingFrame")
-    killerScroll.Name = "KillerScroll"
-    killerScroll.Size = UDim2.new(1, 0, 1, 0)
-    killerScroll.BackgroundTransparency = 1
-    killerScroll.ScrollBarThickness = 4
-    killerScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-    killerScroll.Parent = killerSelectFrame
+	-- Start Survivor's Animations button
+	local survivorBtn = Instance.new("TextButton")
+	survivorBtn.Name = "TextButton"
+	survivorBtn.Size = UDim2.new(1, 0, 0, 30)
+	survivorBtn.Position = UDim2.new(0, 0, 0, 0)
+	survivorBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+	survivorBtn.BorderSizePixel = 0
+	survivorBtn.Text = "Start Survivor's Animations"
+	survivorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	survivorBtn.TextSize = 12
+	survivorBtn.Font = Enum.Font.Gotham
+	survivorBtn.Parent = buttonsFrame
 
-    local killerListLayout = Instance.new("UIListLayout")
-    killerListLayout.Padding = UDim.new(0, 5)
-    killerListLayout.Parent = killerScroll
+	local survivorCorner = Instance.new("UICorner")
+	survivorCorner.CornerRadius = UDim.new(0, 4)
+	survivorCorner.Parent = survivorBtn
 
-    -- Фрейм выбора выжившего
-    local survivorSelectFrame = Instance.new("Frame")
-    survivorSelectFrame.Name = "SurvivorSelectFrame"
-    survivorSelectFrame.Size = UDim2.new(1, 0, 0, 200)
-    survivorSelectFrame.Position = UDim2.new(0, 0, 0, 110)
-    survivorSelectFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-    survivorSelectFrame.Visible = false
-    survivorSelectFrame.Parent = selectionFrame
+	-- Start Killer's Animations button
+	local killerBtn = Instance.new("TextButton")
+	killerBtn.Name = "TextButton"
+	killerBtn.Size = UDim2.new(1, 0, 0, 30)
+	killerBtn.Position = UDim2.new(0, 0, 0, 40)
+	killerBtn.BackgroundColor3 = Color3.fromRGB(80, 120, 200)
+	killerBtn.BorderSizePixel = 0
+	killerBtn.Text = "Start Killer's Animations"
+	killerBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	killerBtn.TextSize = 12
+	killerBtn.Font = Enum.Font.Gotham
+	killerBtn.Parent = buttonsFrame
 
-    local survivorScroll = Instance.new("ScrollingFrame")
-    survivorScroll.Name = "SurvivorScroll"
-    survivorScroll.Size = UDim2.new(1, 0, 1, 0)
-    survivorScroll.BackgroundTransparency = 1
-    survivorScroll.ScrollBarThickness = 4
-    survivorScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-    survivorScroll.Parent = survivorSelectFrame
+	local killerCorner = Instance.new("UICorner")
+	killerCorner.CornerRadius = UDim.new(0, 4)
+	killerCorner.Parent = killerBtn
 
-    local survivorListLayout = Instance.new("UIListLayout")
-    survivorListLayout.Padding = UDim.new(0, 5)
-    survivorListLayout.Parent = survivorScroll
+	-- Select button
+	local selectBtn = Instance.new("TextButton")
+	selectBtn.Name = "TextButton"
+	selectBtn.Size = UDim2.new(1, 0, 0, 25)
+	selectBtn.Position = UDim2.new(0, 0, 0, 80)
+	selectBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+	selectBtn.BorderSizePixel = 0
+	selectBtn.Text = "Select"
+	selectBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	selectBtn.TextSize = 12
+	selectBtn.Font = Enum.Font.Gotham
+	selectBtn.Parent = buttonsFrame
 
-    -- Кнопка восстановления
-    local restoreButton = Instance.new("TextButton")
-    restoreButton.Name = "RestoreButton"
-    restoreButton.Size = UDim2.new(0, 100, 0, 30)
-    restoreButton.Position = UDim2.new(0, 10, 0, 10)
-    restoreButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    restoreButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    restoreButton.Text = "SHOW MENU"
-    restoreButton.Visible = false
-    restoreButton.Font = Enum.Font.Gotham
-    restoreButton.TextSize = 11
-    restoreButton.Parent = screenGui
+	local selectCorner = Instance.new("UICorner")
+	selectCorner.CornerRadius = UDim.new(0, 4)
+	selectCorner.Parent = selectBtn
 
-    -- Функция для эффектов при наведении на кнопки
-    local function setupButtonHover(button)
-        local originalColor = button.BackgroundColor3
-        local hoverColor = Color3.fromRGB(80, 80, 80)
-        
-        button.MouseEnter:Connect(function()
-            button.BackgroundColor3 = hoverColor
-        end)
-        
-        button.MouseLeave:Connect(function()
-            button.BackgroundColor3 = originalColor
-        end)
-    end
+	-- Selection frame
+	local ramka = Instance.new("Frame")
+	ramka.Name = "ramka"
+	ramka.Size = UDim2.new(0, 104, 0, 104)
+	ramka.Position = UDim2.new(0, 18, 0, 18)
+	ramka.BackgroundTransparency = 1
+	ramka.BorderColor3 = Color3.fromRGB(0, 255, 0)
+	ramka.BorderSizePixel = 2
+	ramka.Visible = false
+	ramka.Parent = KillersSelect
 
-    -- Создание кнопок для убийцов
-    local function createKillerButtons()
-        for killerName, killerData in pairs(Config.Killers) do
-            local killerBtn = Instance.new("TextButton")
-            killerBtn.Size = UDim2.new(0.95, 0, 0, 40)
-            killerBtn.Position = UDim2.new(0.025, 0, 0, 0)
-            killerBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-            killerBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            killerBtn.Text = killerData.Name
-            killerBtn.Font = Enum.Font.Gotham
-            killerBtn.TextSize = 11
-            killerBtn.Parent = killerScroll
-            
-            local btnCorner = Instance.new("UICorner")
-            btnCorner.CornerRadius = UDim.new(0, 5)
-            btnCorner.Parent = killerBtn
-            
-            killerBtn.MouseButton1Click:Connect(function()
-                loadAnimations(killerData.Animations)
-                killerSelectFrame.Visible = false
-                survivorSelectFrame.Visible = false
-            end)
-            
-            setupButtonHover(killerBtn)
-        end
-    end
+	local ramkaCorner = Instance.new("UICorner")
+	ramkaCorner.CornerRadius = UDim.new(0, 6)
+	ramkaCorner.Parent = ramka
 
-    -- Создание кнопок для выживших
-    local function createSurvivorButtons()
-        for survivorName, survivorData in pairs(Config.Survivors) do
-            local survivorBtn = Instance.new("TextButton")
-            survivorBtn.Size = UDim2.new(0.95, 0, 0, 40)
-            survivorBtn.Position = UDim2.new(0.025, 0, 0, 0)
-            survivorBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-            survivorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            survivorBtn.Text = survivorData.Name
-            survivorBtn.Font = Enum.Font.Gotham
-            survivorBtn.TextSize = 11
-            survivorBtn.Parent = survivorScroll
-            
-            local btnCorner = Instance.new("UICorner")
-            btnCorner.CornerRadius = UDim.new(0, 5)
-            btnCorner.Parent = survivorBtn
-            
-            survivorBtn.MouseButton1Click:Connect(function()
-                loadAnimations(survivorData.Animations)
-                survivorSelectFrame.Visible = false
-                killerSelectFrame.Visible = false
-            end)
-            
-            setupButtonHover(survivorBtn)
-        end
-    end
+	-- Show window button (hidden initially)
+	local showWindowBtn = Instance.new("TextButton")
+	showWindowBtn.Name = "showWindowBtn"
+	showWindowBtn.Size = UDim2.new(0, 40, 0, 40)
+	showWindowBtn.Position = UDim2.new(0, 10, 1, -50)
+	showWindowBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+	showWindowBtn.BorderSizePixel = 0
+	showWindowBtn.Text = "Show"
+	showWindowBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	showWindowBtn.TextSize = 10
+	showWindowBtn.Visible = false
+	showWindowBtn.Parent = ScreenGui
 
-    -- Обработчики кнопок GUI
-    closeButton.MouseButton1Click:Connect(function()
-        screenGui:Destroy()
-    end)
+	local showCorner = Instance.new("UICorner")
+	showCorner.CornerRadius = UDim.new(0, 4)
+	showCorner.Parent = showWindowBtn
 
-    minimizeButton.MouseButton1Click:Connect(function()
-        mainFrame.Visible = false
-        restoreButton.Visible = true
-    end)
+	-- Animation variables
+	local currentAnimations = {}
+	local currentAnimationTracks = {}
+	local isKillerAnimations = false
+	local selectedKiller = "Noli"
+	local isInjured = false
 
-    restoreButton.MouseButton1Click:Connect(function()
-        mainFrame.Visible = true
-        restoreButton.Visible = false
-    end)
+	-- Stamina and speed variables
+	local currentStamina = Config.SpeedSettings.StaminaMax
+	local isRunning = false
+	local isExhausted = false
+	local lastStaminaUpdate = tick()
 
-    killerButton.MouseButton1Click:Connect(function()
-        killerSelectFrame.Visible = not killerSelectFrame.Visible
-        survivorSelectFrame.Visible = false
-    end)
+	-- Functions
+	local function loadAnimation(animationId)
+		if animationId == "0" or not animationId then
+			debugPrint("Using default animation for ID: 0")
+			return nil
+		end
 
-    survivorButton.MouseButton1Click:Connect(function()
-        survivorSelectFrame.Visible = not survivorSelectFrame.Visible
-        killerSelectFrame.Visible = false
-    end)
+		local success, result = pcall(function()
+			local animation = Instance.new("Animation")
+			animation.AnimationId = "rbxassetid://" .. animationId
+			return humanoid:LoadAnimation(animation)
+		end)
 
-    -- Создаем углы для кнопок
-    local buttonCorner = Instance.new("UICorner")
-    buttonCorner.CornerRadius = UDim.new(0, 6)
-    buttonCorner.Parent = killerButton
-    buttonCorner:Clone().Parent = survivorButton
+		if success and result then
+			debugPrint("Animation loaded successfully: " .. animationId)
+			return result
+		else
+			errorHandler("ANIMATION_LOAD_FAILED", "Failed to load animation: " .. animationId)
+			return nil
+		end
+	end
 
-    local restoreCorner = Instance.new("UICorner")
-    restoreCorner.CornerRadius = UDim.new(0, 5)
-    restoreCorner.Parent = restoreButton
+	local function stopAllAnimations()
+		debugPrint("Stopping all animations")
+		for name, track in pairs(currentAnimationTracks) do
+			if track and track.IsPlaying then
+				track:Stop()
+				debugPrint("Stopped animation: " .. name)
+			end
+		end
+		currentAnimationTracks = {}
+	end
 
-    local killerFrameCorner = Instance.new("UICorner")
-    killerFrameCorner.CornerRadius = UDim.new(0, 6)
-    killerFrameCorner.Parent = killerSelectFrame
+	local function playAnimation(animationName)
+		if currentAnimationTracks[animationName] and not currentAnimationTracks[animationName].IsPlaying then
+			currentAnimationTracks[animationName]:Play()
+			debugPrint("Playing animation: " .. animationName)
+		end
+	end
 
-    local survivorFrameCorner = Instance.new("UICorner")
-    survivorFrameCorner.CornerRadius = UDim.new(0, 6)
-    survivorFrameCorner.Parent = survivorSelectFrame
+	local function stopAnimation(animationName)
+		if currentAnimationTracks[animationName] and currentAnimationTracks[animationName].IsPlaying then
+			currentAnimationTracks[animationName]:Stop()
+			debugPrint("Stopped animation: " .. animationName)
+		end
+	end
 
-    -- Настраиваем эффекты наведения
-    setupButtonHover(killerButton)
-    setupButtonHover(survivorButton)
-    setupButtonHover(restoreButton)
+	local function updateStamina()
+		local currentTime = tick()
+		local deltaTime = currentTime - lastStaminaUpdate
+		lastStaminaUpdate = currentTime
 
-    -- Создаем кнопки выбора
-    createKillerButtons()
-    createSurvivorButtons()
+		if isRunning and not isExhausted then
+			-- Drain stamina when running
+			currentStamina = math.max(0, currentStamina - Config.SpeedSettings.StaminaDrainPerSecond * deltaTime)
+			debugPrint("Stamina draining: " .. currentStamina)
 
-    -- Обновляем размер скролла
-    killerListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        killerScroll.CanvasSize = UDim2.new(0, 0, 0, killerListLayout.AbsoluteContentSize.Y)
-    end)
+			if currentStamina <= 0 then
+				isExhausted = true
+				isRunning = false
+				debugPrint("Exhausted! Can't run anymore")
+			end
+		else
+			-- Regenerate stamina when not running
+			if currentStamina < Config.SpeedSettings.StaminaMax then
+				currentStamina = math.min(Config.SpeedSettings.StaminaMax, currentStamina + Config.SpeedSettings.StaminaRegenPerSecond * deltaTime)
+				debugPrint("Stamina regenerating: " .. currentStamina)
 
-    survivorListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        survivorScroll.CanvasSize = UDim2.new(0, 0, 0, survivorListLayout.AbsoluteContentSize.Y)
-    end)
+				if currentStamina >= Config.SpeedSettings.StaminaMax * 0.3 then
+					isExhausted = false
+					debugPrint("No longer exhausted")
+				end
+			end
+		end
+	end
 
-    -- Добавляем обработку клика вне кнопок для закрытия меню выбора
-    local function onInputBegan(input, gameProcessed)
-        if gameProcessed then return end
-        
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            local mousePos = input.Position
-            
-            local isClickInKillerFrame = killerSelectFrame.Visible and 
-                killerSelectFrame.AbsolutePosition.X <= mousePos.X and 
-                mousePos.X <= killerSelectFrame.AbsolutePosition.X + killerSelectFrame.AbsoluteSize.X and
-                killerSelectFrame.AbsolutePosition.Y <= mousePos.Y and 
-                mousePos.Y <= killerSelectFrame.AbsolutePosition.Y + killerSelectFrame.AbsoluteSize.Y
-                
-            local isClickInSurvivorFrame = survivorSelectFrame.Visible and 
-                survivorSelectFrame.AbsolutePosition.X <= mousePos.X and 
-                mousePos.X <= survivorSelectFrame.AbsolutePosition.X + survivorSelectFrame.AbsoluteSize.X and
-                survivorSelectFrame.AbsolutePosition.Y <= mousePos.Y and 
-                mousePos.Y <= survivorSelectFrame.AbsolutePosition.Y + survivorSelectFrame.AbsoluteSize.Y
-            
-            if not isClickInKillerFrame and not isClickInSurvivorFrame then
-                killerSelectFrame.Visible = false
-                survivorSelectFrame.Visible = false
-            end
-        end
-    end
+	local function updateSpeed()
+		if isExhausted then
+			humanoid.WalkSpeed = Config.SpeedSettings.ExhaustedSpeed
+			debugPrint("Speed set to exhausted: " .. Config.SpeedSettings.ExhaustedSpeed)
+		elseif isRunning then
+			humanoid.WalkSpeed = Config.SpeedSettings.RunSpeed
+			debugPrint("Speed set to run: " .. Config.SpeedSettings.RunSpeed)
+		else
+			humanoid.WalkSpeed = Config.SpeedSettings.NormalSpeed
+			debugPrint("Speed set to normal: " .. Config.SpeedSettings.NormalSpeed)
+		end
+	end
 
-    UserInputService.InputBegan:Connect(onInputBegan)
+	local function getCurrentAnimationSet()
+		local health = humanoid.Health
+		local newInjured = health <= Config.HealthThreshold
 
-    -- Инициализация системы
-    initializeCharacter()
-    loadAnimations(currentAnimSet)
-    initAnimationSystem()
+		if newInjured ~= isInjured then
+			isInjured = newInjured
+			debugPrint("Injured state changed: " .. tostring(isInjured))
+		end
 
-    print("🎮 Foremen Animations loaded successfully!")
-    print("📖 Controls: Left Ctrl - Toggle Run | LMB - Attack")
-    print("💡 Use the GUI to select different animations")
+		if isKillerAnimations then
+			local killerConfig = Config.Killers[selectedKiller]
+			return isInjured and killerConfig.Animations.Injured or killerConfig.Animations.Normal
+		else
+			return isInjured and Config.SurvivorAnimations.Injured or Config.SurvivorAnimations.Normal
+		end
+	end
+
+	local function applyKillerAnimations()
+		debugPrint("Applying killer animations for: " .. selectedKiller)
+		stopAllAnimations()
+		isKillerAnimations = true
+
+		local animSet = getCurrentAnimationSet()
+
+		-- Load killer animations
+		for animName, animId in pairs(animSet) do
+			currentAnimationTracks[animName] = loadAnimation(animId)
+		end
+
+		-- Reset stamina and speed
+		currentStamina = Config.SpeedSettings.StaminaMax
+		isRunning = false
+		isExhausted = false
+		updateSpeed()
+
+		-- Play idle animation initially
+		playAnimation("Idle")
+	end
+
+	local function applySurvivorAnimations()
+		debugPrint("Applying survivor animations")
+		stopAllAnimations()
+		isKillerAnimations = false
+
+		local animSet = getCurrentAnimationSet()
+
+		-- Load survivor animations
+		for animName, animId in pairs(animSet) do
+			currentAnimationTracks[animName] = loadAnimation(animId)
+		end
+
+		-- Reset stamina and speed
+		currentStamina = Config.SpeedSettings.StaminaMax
+		isRunning = false
+		isExhausted = false
+		updateSpeed()
+
+		-- Play idle animation initially if not using default
+		if animSet.Idle ~= "0" then
+			playAnimation("Idle")
+		end
+	end
+
+	-- Health monitoring
+	local function checkHealth()
+		local currentAnimSet = getCurrentAnimationSet()
+
+		-- If health state changed, reapply animations
+		if isKillerAnimations then
+			applyKillerAnimations()
+		else
+			applySurvivorAnimations()
+		end
+	end
+
+	-- Button connections
+	selectBtn.MouseButton1Click:Connect(function()
+		ramka.Visible = not ramka.Visible
+		debugPrint("Select button clicked, ramka visible: " .. tostring(ramka.Visible))
+	end)
+
+	killerBtn.MouseButton1Click:Connect(function()
+		debugPrint("Killer animations button clicked")
+		applyKillerAnimations()
+	end)
+
+	survivorBtn.MouseButton1Click:Connect(function()
+		debugPrint("Survivor animations button clicked")
+		applySurvivorAnimations()
+	end)
+
+	showWindowBtn.MouseButton1Click:Connect(function()
+		okno.Visible = true
+		showWindowBtn.Visible = false
+		debugPrint("Show window button clicked")
+	end)
+
+	-- Animation controllers
+	local UserInputService = game:GetService("UserInputService")
+	local RunService = game:GetService("RunService")
+
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+
+		if input.UserInputType == Enum.UserInputType.MouseButton1 and isKillerAnimations then
+			-- Attack on LMB
+			debugPrint("LMB pressed - Attack")
+			if currentAnimationTracks.Attack then
+				stopAnimation("Idle")
+				playAnimation("Attack")
+
+				-- Return to idle after attack
+				if currentAnimationTracks.Attack then
+					currentAnimationTracks.Attack.Stopped:Connect(function()
+						if isKillerAnimations then
+							playAnimation("Idle")
+						end
+					end)
+				end
+			end
+		elseif input.KeyCode == Enum.KeyCode.LeftControl then
+			-- Run on Left Ctrl
+			if not isExhausted and currentStamina > 0 then
+				debugPrint("Left Ctrl pressed - Run")
+				isRunning = true
+				updateSpeed()
+
+				if isKillerAnimations and currentAnimationTracks.Run and currentAnimationTracks.Walk then
+					stopAnimation("Walk")
+					stopAnimation("Idle")
+					playAnimation("Run")
+				end
+			else
+				debugPrint("Can't run - exhausted or no stamina")
+			end
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+
+		if input.KeyCode == Enum.KeyCode.LeftControl then
+			-- Stop running when Left Ctrl released
+			debugPrint("Left Ctrl released - Walk")
+			isRunning = false
+			updateSpeed()
+
+			if isKillerAnimations and currentAnimationTracks.Run and currentAnimationTracks.Walk then
+				stopAnimation("Run")
+				playAnimation("Walk")
+			end
+		end
+	end)
+
+	-- Character movement detection
+	local lastPosition = character:WaitForChild("HumanoidRootPart").Position
+	local isMoving = false
+
+	RunService.Heartbeat:Connect(function()
+		-- Update stamina
+		updateStamina()
+
+		if not isKillerAnimations then return end
+
+		local currentCharacter = player.Character
+		if currentCharacter and currentCharacter:FindFirstChild("HumanoidRootPart") then
+			local currentPosition = currentCharacter.HumanoidRootPart.Position
+			local velocity = (currentPosition - lastPosition).Magnitude
+
+			if velocity > 0.1 and not isMoving then
+				-- Started moving
+				isMoving = true
+				debugPrint("Character started moving")
+				stopAnimation("Idle")
+				if isRunning then
+					playAnimation("Run")
+				else
+					playAnimation("Walk")
+				end
+			elseif velocity <= 0.1 and isMoving then
+				-- Stopped moving
+				isMoving = false
+				debugPrint("Character stopped moving")
+				stopAnimation("Walk")
+				stopAnimation("Run")
+				playAnimation("Idle")
+			end
+
+			lastPosition = currentPosition
+		end
+	end)
+
+	-- Health monitoring connection
+	humanoid.HealthChanged:Connect(checkHealth)
+
+	-- Character added event
+	player.CharacterAdded:Connect(function(newCharacter)
+		debugPrint("New character added")
+		wait(1) -- Wait for character to fully load
+
+		character = newCharacter
+		humanoid = newCharacter:WaitForChild("Humanoid")
+
+		-- Reconnect health monitoring
+		humanoid.HealthChanged:Connect(checkHealth)
+
+		-- Reset stamina and speed
+		currentStamina = Config.SpeedSettings.StaminaMax
+		isRunning = false
+		isExhausted = false
+		updateSpeed()
+
+		-- Reapply current animations
+		if isKillerAnimations then
+			applyKillerAnimations()
+		else
+			applySurvivorAnimations()
+		end
+	end)
+
+	-- Initial animation setup
+	applySurvivorAnimations()
+	debugPrint("Script initialized successfully")
 
 end)
 
 if not success then
-    warn("[ForemenAnim] Error loading script: " .. tostring(error))
-else
-    print("✅ Foremen Animations loaded without errors!")
+	errorHandler("SCRIPT_INIT_FAILED", "Script initialization failed: " .. tostring(errorMessage))
+
+	-- Self-destruct on critical error
+	if game.Players.LocalPlayer and game.Players.LocalPlayer:FindFirstChild("PlayerGui") then
+		local gui = game.Players.LocalPlayer.PlayerGui:FindFirstChild("ForexikenAnimations")
+		if gui then
+			gui:Destroy()
+		end
+	end
 end
